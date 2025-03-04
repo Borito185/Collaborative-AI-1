@@ -77,8 +77,10 @@ class BaselineAgent(ArtificialBrain):
         self._competence_rescue = 0.5
         self._willingness_search = 0.5
         self._willingness_rescue = 0.5
-        self._started_waiting = 0
-        self._assumed_collected = []
+        self._started_waiting = 0           # to keep track of time until human helps carry
+        self._announced_search = 0          # to keep track of time since said would search
+        self._human_is_searching = False    # flag to know when human is searching
+        self._assumed_collected = []        # to keep track of what victims human collected supposedly
 
     def initialize(self):
         # Initialization of the state tracker and navigation algorithm
@@ -104,7 +106,14 @@ class BaselineAgent(ArtificialBrain):
         self._processMessages(state, self._teamMembers, self._condition)
         # Initialize and update trust beliefs for team members
         trustBeliefs = self._loadBelief(self._teamMembers, self._folder)
-        self._trustBelief(self._teamMembers, trustBeliefs, self._folder, self._receivedMessages)
+        self._trustBelief(self._teamMembers, trustBeliefs, self._folder, self._receivedMessages, state)
+
+        # Check if human is taking too long to search
+        if self._human_is_searching:
+            if state['World']['nr_ticks'] - self._announced_search > 180:
+                self._willingness_search = max(self._willingness_search - 0.05, -1)
+                # Set flag back to not searching to avoid reducing constantly
+                self._human_is_searching = False
 
         # Check whether human is close in distance
         if state[{'is_human_agent': True}]:
@@ -859,7 +868,7 @@ class BaselineAgent(ArtificialBrain):
                                                       'willingness_rescue': willingness_rescue}
         return trustBeliefs
 
-    def _trustBelief(self, members, trustBeliefs, folder, receivedMessages):
+    def _trustBelief(self, members, trustBeliefs, folder, receivedMessages, state):
         '''
         Updates the trust belief based on received messages and the robot's observations.
         '''
@@ -875,6 +884,8 @@ class BaselineAgent(ArtificialBrain):
                 if self.search_found_sequence.get(room_number) is None:
                     self.search_found_sequence[room_number] = "searched"
                     print(f"Logged search for {room_number}")  # Debug
+                    self._human_is_searching = True
+                    self._announced_search = state['World']['nr_ticks']
 
             # If the human later claims to have found a victim in that room, check the sequence
             elif "Found" in message:
@@ -886,6 +897,9 @@ class BaselineAgent(ArtificialBrain):
                     # If only "Found" was received (without prior "Search"), increase by half
                     self._competence_search = min(self._competence_search + 0.025, 1)
                 self.search_found_sequence[room_number] = "found"
+                if self._human_is_searching and (state['World']['nr_ticks'] - self._announced_search <= 180):
+                    self._willingness_search = min (self._willingness_search + 0.05, 1)
+                    self._human_is_searching = False
 
             # If the human has said that a victim has been collected in a message
             if 'Collect' in message:
@@ -899,6 +913,7 @@ class BaselineAgent(ArtificialBrain):
 
         trustBeliefs[self._humanName]['competence_search'] = self._competence_search
         trustBeliefs[self._humanName]['competence_rescue'] = self._competence_rescue
+        trustBeliefs[self._humanName]['willingness_search'] = self._willingness_search
 
         # Save current trust belief values so we can later use and retrieve them to add to a csv file with all the logged trust belief values
         with open(folder + '/beliefs/currentTrustBelief.csv', mode='w') as csv_file:
