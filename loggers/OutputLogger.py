@@ -42,8 +42,11 @@ def output_logger(fld):
                 trustfile_contents.append(res)
     # Retrieve the stored trust belief values
     name = trustfile_contents[-1]['name']
-    competence = trustfile_contents[-1]['competence']
-    willingness = trustfile_contents[-1]['willingness']
+    # UPDATED TRUSTFILE CONTENTS
+    competence_search = trustfile_contents[-1]['competence_search']
+    competence_rescue = trustfile_contents[-1]['competence_rescue']
+    willingness_search = trustfile_contents[-1]['willingness_search']
+    willingness_rescue = trustfile_contents[-1]['willingness_rescue']
     # Retrieve the number of ticks to finish the task, score, and completeness
     no_ticks = action_contents[-1]['tick_nr']
     score = action_contents[-1]['score']
@@ -56,4 +59,5 @@ def output_logger(fld):
         csv_writer.writerow([completeness,score,no_ticks,len(unique_agent_actions),len(unique_human_actions)])
     with open(fld + '/beliefs/allTrustBeliefs.csv', mode='a+') as csv_file:
         csv_writer = csv.writer(csv_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        csv_writer.writerow([name,competence,willingness])
+        # UPDATED TRUST VALUES
+        csv_writer.writerow([name, competence_search, competence_rescue, willingness_search, willingness_rescue])

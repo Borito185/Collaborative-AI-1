@@ -73,6 +73,13 @@ class BaselineAgent(ArtificialBrain):
         self._receivedMessages = []
         self._moving = False
 
+        self._competence_search = 0.5
+        self._competence_rescue = 0.5
+        self._willingness_search = 0.5
+        self._willingness_rescue = 0.5
+        self._started_waiting = 0
+        self._assumed_collected = []
+
     def initialize(self):
         # Initialization of the state tracker and navigation algorithm
         self._state_tracker = StateTracker(agent_id=self.agent_id)
@@ -229,6 +236,10 @@ class BaselineAgent(ArtificialBrain):
                     self._sendMessages = []
                     self.received_messages = []
                     self.received_messages_content = []
+
+                    # Also reduce trust per victim that was told to be collected
+                    self._competence_rescue = max(self._competence_rescue - 0.1, -1)
+
                     self._sendMessage('Going to re-search all areas.', 'RescueBot')
                     self._phase = Phase.FIND_NEXT_GOAL
                 # If there are still areas to search, define which one to search next
@@ -504,9 +515,18 @@ class BaselineAgent(ArtificialBrain):
                     return action, {}
 
                 # Communicate that the agent did not find the target victim in the area while the human previously communicated the victim was located here
-                if self._goalVic in self._foundVictims and self._goalVic not in self._roomVics and self._foundVictimLocs[self._goalVic]['room'] == self._door['room_name']:
+                if self._goalVic in self._foundVictims and self._goalVyic not in self._roomVics and self._foundVictimLocs[self._goalVic]['room'] == self._door['room_name']:
                     self._sendMessage(self._goalVic + ' not present in ' + str(self._door['room_name']) + ' because I searched the whole area without finding ' + self._goalVic + '.','RescueBot')
-                    # Remove the victim location from memory
+
+                    # Human lie about victim being there and did not collect it
+                    if 'mild' in self._goal_vic:
+                        print("subtracting 1.25")
+                        self._competence_search = max(self._competence_search - 0.075, -1)
+                    elif 'critical' in self._goal_vic:
+                        print("subtracting 1.25")
+                        self._competence_search = max(self._competence_search - 0.125, -1)
+
+                    # Remove the victim location from memor
                     self._foundVictimLocs.pop(self._goalVic, None)
                     self._foundVictims.remove(self._goalVic)
                     self._roomVics = []
@@ -610,10 +630,28 @@ class BaselineAgent(ArtificialBrain):
                         if not self._humanName in info['name']:
                             self._waiting = True
                             self._moving = False
+                            self._started_waiting = state['World']['nr_ticks']
                             return None, {}
                 # Add the victim to the list of rescued victims when it has been picked up
                 if len(objects) == 0 and 'critical' in self._goalVic or len(objects) == 0 and 'mild' in self._goalVic and self._rescue=='together':
                     self._waiting = False
+
+                    # Count the number of ticks that the robot has waited
+                    ticks_since_started_waiting = state['World']['nr_ticks'] - self._started_waiting
+
+                    # Add or Subtract competence_rescue based on time taken to rescue together
+                    # Need to tune the ticks TODO
+                    if ticks_since_started_waiting <= 60:
+                        self._competence_rescue = min(self._competence_rescue + 0.1, 1)
+                    elif ticks_since_started_waiting <= 90:
+                        self._competence_rescue = min(self._competence_rescue + 0.05, 1)
+                    elif ticks_since_started_waiting <= 120:
+                        self._competence_rescue = max(self._competence_rescue - 0.05, -1)
+                    else:
+                        self._competence_rescue = max(self._competence_rescue - 0.1, -1)
+
+                    print(ticks_since_started_waiting, "ticks since robot started waiting")
+
                     if self._goalVic not in self._collectedVictims:
                         self._collectedVictims.append(self._goalVic)
                     self._carryingTogether = True
@@ -779,6 +817,17 @@ class BaselineAgent(ArtificialBrain):
         default = 0.5
         trustfile_header = []
         trustfile_contents = []
+
+        # Check if need to reload from scratch
+        with open(folder + '/beliefs/currentTrustBelief.csv') as csvfile:
+            reader = csv.reader(csvfile, delimiter=';', quotechar='"')
+            next(reader)  # Skip header
+            for row in reader:
+                if row and row[0] == self._humanName:
+                    trustBeliefs[self._humanName] = {'competence_search': float(row[1]), 'competence_rescue':
+                        float(row[2]), 'willingness_search': float(row[3]), 'willingness_rescue': float(row[4])}
+                    return trustBeliefs  # If found, return immediately (no need to load defaults)
+
         # Check if agent already collaborated with this human before, if yes: load the corresponding trust values, if no: initialize using default trust values
         with open(folder+'/beliefs/allTrustBeliefs.csv') as csvfile:
             reader = csv.reader(csvfile, delimiter=';', quotechar="'")
@@ -789,32 +838,76 @@ class BaselineAgent(ArtificialBrain):
                 # Retrieve trust values 
                 if row and row[0]==self._humanName:
                     name = row[0]
-                    competence = float(row[1])
-                    willingness = float(row[2])
-                    trustBeliefs[name] = {'competence': competence, 'willingness': willingness}
+                    competence_search = float(row[1])
+                    competence_rescue = float(row[2])
+                    willingness_search = float(row[3])
+                    willingness_rescue = float(row[4])
+                    trustBeliefs[name] = {
+                        'competence_search': competence_search,
+                        'competence_rescue': competence_rescue,
+                        'willingness_search': willingness_search,
+                        'willingness_rescue': willingness_rescue}
                 # Initialize default trust values
                 if row and row[0]!=self._humanName:
-                    competence = default
-                    willingness = default
-                    trustBeliefs[self._humanName] = {'competence': competence, 'willingness': willingness}
+                    competence_search = default
+                    competence_rescue = default
+                    willingness_search = default
+                    willingness_rescue = default
+                    trustBeliefs[self._humanName] = {'competence_search': competence_search,
+                                                      'competence_rescue': competence_rescue,
+                                                      'willingness_search': willingness_search,
+                                                      'willingness_rescue': willingness_rescue}
         return trustBeliefs
 
     def _trustBelief(self, members, trustBeliefs, folder, receivedMessages):
         '''
-        Baseline implementation of a trust belief. Creates a dictionary with trust belief scores for each team member, for example based on the received messages.
+        Updates the trust belief based on received messages and the robot's observations.
         '''
-        # Update the trust value based on for example the received messages
+        # **Ensure search_found_sequence persists across ticks**
+        if not hasattr(self, "search_found_sequence"):
+            self.search_found_sequence = {f"area {i}": None for i in range(1, 15)}  # Initialize once
+
+        # Process received messages
         for message in receivedMessages:
-            # Increase agent trust in a team member that rescued a victim
+            if "Search" in message:
+                room_number = f"area {message.split()[-1]}"  # Extract room number
+                # Only mark as "searched" if the room isn't already being tracked
+                if self.search_found_sequence.get(room_number) is None:
+                    self.search_found_sequence[room_number] = "searched"
+                    print(f"Logged search for {room_number}")  # Debug
+
+            # If the human later claims to have found a victim in that room, check the sequence
+            elif "Found" in message:
+                room_number = f"area {message.split()[-1]}"
+                if self.search_found_sequence.get(room_number) == "searched":
+                    # Increase trust normally when "Search" -> "Found" happens in order
+                    self._competence_search = min(self._competence_search + 0.05, 1)
+                elif self.search_found_sequence.get(room_number) is None:
+                    # If only "Found" was received (without prior "Search"), increase by half
+                    self._competence_search = min(self._competence_search + 0.025, 1)
+                self.search_found_sequence[room_number] = "found"
+
+            # If the human has said that a victim has been collected in a message
             if 'Collect' in message:
-                trustBeliefs[self._humanName]['competence']+=0.10
-                # Restrict the competence belief to a range of -1 to 1
-                trustBeliefs[self._humanName]['competence'] = np.clip(trustBeliefs[self._humanName]['competence'], -1, 1)
+                # Check what victim this is
+                assumed_victim_split = message.split(' ')[1:4]
+                assumed_victim = ' '.join(assumed_victim_split)
+                # Check if this victim was told to be collected previously so no repetition
+                if assumed_victim not in self._assumed_collected:
+                    self._competence_rescue = min(self._competence_rescue + 0.05, 1)
+                    self._assumed_collected.append(assumed_victim)
+
+        trustBeliefs[self._humanName]['competence_search'] = self._competence_search
+        trustBeliefs[self._humanName]['competence_rescue'] = self._competence_rescue
+
         # Save current trust belief values so we can later use and retrieve them to add to a csv file with all the logged trust belief values
         with open(folder + '/beliefs/currentTrustBelief.csv', mode='w') as csv_file:
             csv_writer = csv.writer(csv_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writerow(['name','competence','willingness'])
-            csv_writer.writerow([self._humanName,trustBeliefs[self._humanName]['competence'],trustBeliefs[self._humanName]['willingness']])
+            csv_writer.writerow(['name', 'competence_search', 'competence_rescue', 'willingness_search', 'willingness_rescue'])
+            csv_writer.writerow([self._humanName, trustBeliefs[self._humanName]['competence_search'],
+                                 trustBeliefs[self._humanName]['competence_rescue'],
+                                 trustBeliefs[self._humanName]['willingness_search'],
+                                 trustBeliefs[self._humanName]['willingness_rescue']])
 
         return trustBeliefs
 
