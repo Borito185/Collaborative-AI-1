@@ -202,10 +202,12 @@ class BaselineAgent(ArtificialBrain):
                         self._sendMessage('Moving to ' + self._foundVictimLocs[vic]['room'] + ' to pick up ' + self._goalVic +'. Please come there as well to help me carry ' + self._goalVic + ' to the drop zone.', 'RescueBot')
                         # Plan path to victim because the exact location is known (i.e., the agent found this victim)
                         if 'location' in self._foundVictimLocs[vic].keys():
+                            print("location is know i go get it")
                             self._phase = Phase.PLAN_PATH_TO_VICTIM
                             return Idle.__name__, {'duration_in_ticks': 25}
                         # Plan path to area because the exact victim location is not known, only the area (i.e., human found this  victim)
                         if 'location' not in self._foundVictimLocs[vic].keys():
+                            print("location is not know i go room first")
                             self._phase = Phase.PLAN_PATH_TO_ROOM
                             return Idle.__name__, {'duration_in_ticks': 25}
                     # Define a previously found victim as target victim
@@ -501,6 +503,7 @@ class BaselineAgent(ArtificialBrain):
                                         self._searchedRooms.append(self._door['room_name'])
                                     # Do not continue searching the rest of the area but start planning to rescue the victim
                                     self._phase = Phase.FIND_NEXT_GOAL
+                                # TODO could be a place to reduce trust in search
 
                             # Identify injured victim in the area
                             if 'healthy' not in vic and vic not in self._foundVictims:
@@ -524,14 +527,14 @@ class BaselineAgent(ArtificialBrain):
                     return action, {}
 
                 # Communicate that the agent did not find the target victim in the area while the human previously communicated the victim was located here
-                if self._goalVic in self._foundVictims and self._goalVyic not in self._roomVics and self._foundVictimLocs[self._goalVic]['room'] == self._door['room_name']:
+                if self._goalVic in self._foundVictims and self._goalVic not in self._roomVics and self._foundVictimLocs[self._goalVic]['room'] == self._door['room_name']:
                     self._sendMessage(self._goalVic + ' not present in ' + str(self._door['room_name']) + ' because I searched the whole area without finding ' + self._goalVic + '.','RescueBot')
 
                     # Human lie about victim being there and did not collect it
-                    if 'mild' in self._goal_vic:
+                    if 'mild' in self._goalVic:
                         print("subtracting 1.25")
                         self._competence_search = max(self._competence_search - 0.075, -1)
-                    elif 'critical' in self._goal_vic:
+                    elif 'critical' in self._goalVic:
                         print("subtracting 1.25")
                         self._competence_search = max(self._competence_search - 0.125, -1)
 
@@ -739,30 +742,45 @@ class BaselineAgent(ArtificialBrain):
                 if msg.startswith("Search:"):
                     area = 'area ' + msg.split()[-1]
                     if area not in self._searchedRooms:
-                        self._searchedRooms.append(area)
+                        # Depending on trust, the area might not be saved to the search
+                        # If trust is less than 0.2 or willingness is less than 0.2-> never trust
+                        # If trust is between 0.2 and 0.5 -> trust 20% of the time as long as both add up to 0.6
+                        # If trust and willingness are at least 0.5 and together at least 1.15 -> Always trust
+                        if self._competence_search >= 0.5 and self._willingness_search >= 0.5 and self._competence_search + self._willingness_search >= 1.15:
+                            self._searchedRooms.append(area)
+                        elif self._competence_search >= 0.2 and self._willingness_search >= 0.2 and self._competence_search + self._willingness_search >= 0.6:
+                            if np.random.rand() < 0.2:
+                                self._searchedRooms.append(area)
+                        else:
+                            print("Yeah I dont believe that I'm not adding that room to the searched rooms")
                 # If a received message involves team members finding victims, add these victims and their locations to memory
                 if msg.startswith("Found:"):
-                    # Identify which victim and area it concerns
-                    if len(msg.split()) == 6:
-                        foundVic = ' '.join(msg.split()[1:4])
+                    # If trust is not good enough, sometimes the robot will assume the victim has not been found
+                    if self._competence_search >= 0.3 and self._willingness_search >= 0.3:
+                        # A third of the time the robot will assume they are not found
+                        # Identify which victim and area it concerns
+                        if len(msg.split()) == 6:
+                            foundVic = ' '.join(msg.split()[1:4])
+                        else:
+                            foundVic = ' '.join(msg.split()[1:5])
+                        loc = 'area ' + msg.split()[-1]
+                        # Add the area to the memory of searched areas
+                        if loc not in self._searchedRooms:
+                            self._searchedRooms.append(loc)
+                        # Add the victim and its location to memory
+                        if foundVic not in self._foundVictims:
+                            self._foundVictims.append(foundVic)
+                            self._foundVictimLocs[foundVic] = {'room': loc}
+                        if foundVic in self._foundVictims and self._foundVictimLocs[foundVic]['room'] != loc:
+                            self._foundVictimLocs[foundVic] = {'room': loc}
+                        # Decide to help the human carry a found victim when the human's condition is 'weak'
+                        if condition=='weak':
+                            self._rescue = 'together'
+                        # Add the found victim to the to do list when the human's condition is not 'weak'
+                        if 'mild' in foundVic and condition!='weak':
+                            self._todo.append(foundVic)
                     else:
-                        foundVic = ' '.join(msg.split()[1:5])
-                    loc = 'area ' + msg.split()[-1]
-                    # Add the area to the memory of searched areas
-                    if loc not in self._searchedRooms:
-                        self._searchedRooms.append(loc)
-                    # Add the victim and its location to memory
-                    if foundVic not in self._foundVictims:
-                        self._foundVictims.append(foundVic)
-                        self._foundVictimLocs[foundVic] = {'room': loc}
-                    if foundVic in self._foundVictims and self._foundVictimLocs[foundVic]['room'] != loc:
-                        self._foundVictimLocs[foundVic] = {'room': loc}
-                    # Decide to help the human carry a found victim when the human's condition is 'weak'
-                    if condition=='weak':
-                        self._rescue = 'together'
-                    # Add the found victim to the to do list when the human's condition is not 'weak'
-                    if 'mild' in foundVic and condition!='weak':
-                        self._todo.append(foundVic)
+                        print("Yeah I dont believe that I'm not adding victim to the founds ones, build some trust first")
                 # If a received message involves team members rescuing victims, add these victims and their locations to memory
                 if msg.startswith('Collect:'):
                     # Identify which victim and area it concerns
@@ -773,19 +791,32 @@ class BaselineAgent(ArtificialBrain):
                     loc = 'area ' + msg.split()[-1]
                     # Add the area to the memory of searched areas
                     if loc not in self._searchedRooms:
-                        self._searchedRooms.append(loc)
+                        # Depending on trust, the area might not be saved to the search
+                        # If trust is less than 0.2 or willingness is less than 0.2-> never trust
+                        # If trust is between 0.2 and 0.5 -> trust 20% of the time as long as both add up to 0.6
+                        # If trust and willingness are at least 0.5 and together at least 1.15 -> Always trust
+                        if self._competence_search >= 0.5 and self._willingness_search >= 0.5 and self._competence_search + self._willingness_search >= 1.15:
+                            self._searchedRooms.append(loc)
+                        elif self._competence_search >= 0.2 and self._willingness_search >= 0.2 and self._competence_search + self._willingness_search >= 0.6:
+                            if np.random.rand() < 0.2:
+                                self._searchedRooms.append(loc)
                     # Add the victim and location to the memory of found victims
-                    if collectVic not in self._foundVictims:
-                        self._foundVictims.append(collectVic)
-                        self._foundVictimLocs[collectVic] = {'room': loc}
-                    if collectVic in self._foundVictims and self._foundVictimLocs[collectVic]['room'] != loc:
-                        self._foundVictimLocs[collectVic] = {'room': loc}
-                    # Add the victim to the memory of rescued victims when the human's condition is not weak
-                    if condition!='weak' and collectVic not in self._collectedVictims:
-                        self._collectedVictims.append(collectVic)
-                    # Decide to help the human carry the victim together when the human's condition is weak
-                    if condition=='weak':
-                        self._rescue = 'together'
+
+                    # If trust is not good enough, sometimes the robot will assume the victim has not been found
+                    if self._competence_search <= 0.4 or self._willingness_search <= 0.4:
+                        # A third of the time the robot will assume they are not found
+                        if np.random.rand() < 0.66:
+                            if collectVic not in self._foundVictims:
+                                self._foundVictims.append(collectVic)
+                                self._foundVictimLocs[collectVic] = {'room': loc}
+                            if collectVic in self._foundVictims and self._foundVictimLocs[collectVic]['room'] != loc:
+                                self._foundVictimLocs[collectVic] = {'room': loc}
+                            # Add the victim to the memory of rescued victims when the human's condition is not weak
+                            if condition!='weak' and collectVic not in self._collectedVictims:
+                                self._collectedVictims.append(collectVic)
+                            # Decide to help the human carry the victim together when the human's condition is weak
+                            if condition=='weak':
+                                self._rescue = 'together'
                 # If a received message involves team members asking for help with removing obstacles, add their location to memory and come over
                 if msg.startswith('Remove:'):
                     # Come over immediately when the agent is not carrying a victim
