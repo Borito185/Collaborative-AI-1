@@ -77,10 +77,18 @@ class BaselineAgent(ArtificialBrain):
         self._competence_rescue = 0.5
         self._willingness_search = 0.5
         self._willingness_rescue = 0.5
-        self._started_waiting = 0           # to keep track of time until human helps carry
-        self._announced_search = 0          # to keep track of time since said would search
-        self._human_is_searching = False    # flag to know when human is searching
-        self._assumed_collected = []        # to keep track of what victims human collected supposedly
+
+        self._competence_remove = 0.5
+        self._willingness_remove = 0.5
+        self._receivedBigReward = False # removing is annoying. this works fine
+
+        self._started_waiting = 0  # to keep track of time until human helps carry
+        self._announced_search = 0  # to keep track of time since said would search
+        self._human_is_searching = False  # flag to know when human is searching
+        self._assumed_collected = []  # to keep track of what victims human collected supposedly
+
+
+        self.last = -1 #for debugging. can delete
 
     def initialize(self):
         # Initialization of the state tracker and navigation algorithm
@@ -92,6 +100,7 @@ class BaselineAgent(ArtificialBrain):
         return state
 
     def decide_on_actions(self, state):
+
         # Identify team members
         agent_name = state[self.agent_id]['obj_id']
         for member in state['World']['team_members']:
@@ -330,6 +339,10 @@ class BaselineAgent(ArtificialBrain):
                     self._phase = Phase.REMOVE_OBSTACLE_IF_NEEDED
 
             if Phase.REMOVE_OBSTACLE_IF_NEEDED == self._phase:
+                smallReward = 0.05
+                bigReward = 0.2
+                penalty = 0.001
+
                 objects = []
                 agent_location = state[self.agent_id]['location']
                 # Identify which obstacle is blocking the entrance
@@ -344,25 +357,77 @@ class BaselineAgent(ArtificialBrain):
                             self._waiting = True                          
                         # Determine the next area to explore if the human tells the agent not to remove the obstacle
                         if self.received_messages_content and self.received_messages_content[-1] == 'Continue' and not self._remove:
+                            self._competence_remove = min(self._competence_remove + smallReward, 1)
+
                             self._answered = True
                             self._waiting = False
                             # Add area to the to do list
                             self._tosearch.append(self._door['room_name'])
+
+                            self._receivedBigReward = False
                             self._phase = Phase.FIND_NEXT_GOAL
+
                         # Wait for the human to help removing the obstacle and remove the obstacle together
                         if self.received_messages_content and self.received_messages_content[-1] == 'Remove' or self._remove:
                             if not self._remove:
                                 self._answered = True
                             # Tell the human to come over and be idle untill human arrives
                             if not state[{'is_human_agent': True}]:
+                                if(not self._receivedBigReward):
+                                    self._receivedBigReward = True
+                                    self._competence_remove = min(self._competence_remove + bigReward, 1)
+                                else:
+                                    self._competence_remove = max(self._competence_remove - penalty, -1)
+                                    if(self._competence_remove < -0.5):
+                                        self._answered = True
+                                        self._waiting = False
+                                        # Add area to the to do list
+                                        self._tosearch.append(self._door['room_name'])
+                                        self._phase = Phase.FIND_NEXT_GOAL
+                                        self._sendMessage('Continuing from ' + str(
+                                            self._door[
+                                                'room_name']) + ', because rock is blocking entrance and you have too low removing competence',
+                                                          'RescueBot')
+
+
                                 self._sendMessage('Please come to ' + str(self._door['room_name']) + ' to remove rock.','RescueBot')
                                 return None, {}
                             # Tell the human to remove the obstacle when he/she arrives
                             if state[{'is_human_agent': True}]:
+                                if (not self._receivedBigReward):
+                                    self._receivedBigReward = True
+                                    self._competence_remove = min(self._competence_remove + bigReward, 1)
+                                else:
+                                    self._competence_remove = max(self._competence_remove - penalty, -1)
+                                    if (self._competence_remove < -0.5):
+                                        self._answered = True
+                                        self._waiting = False
+                                        # Add area to the to do list
+                                        self._tosearch.append(self._door['room_name'])
+                                        self._phase = Phase.FIND_NEXT_GOAL
+                                        self._sendMessage('Continuing from ' + str(
+                                            self._door[
+                                                'room_name']) + ', because rock is blocking entrance and you have too low removing competence',
+                                                          'RescueBot')
+
                                 self._sendMessage('Lets remove rock blocking ' + str(self._door['room_name']) + '!','RescueBot')
                                 return None, {}
-                        # Remain idle untill the human communicates what to do with the identified obstacle 
+
+                        # Remain idle untill the human communicates what to do with the identified obstacle
                         else:
+                            self._competence_remove = max(self._competence_remove - penalty, -1)
+                            self._receivedBigReward = False
+                            if self._answered:
+                                if (self._competence_remove < -0.5):        #TODO add implementation when this is the last room
+                                    self._answered = True
+                                    self._waiting = False
+                                    # Add area to the to do list
+                                    self._tosearch.append(self._door['room_name'])
+                                    self._phase = Phase.FIND_NEXT_GOAL
+                                    self._sendMessage('Continuing from ' + str(
+                                        self._door['room_name']) + ', because stone is blocking entrance and you have too low removing competence',
+                                                      'RescueBot')
+                                    self._receivedBigReward = False
                             return None, {}
 
                     if 'class_inheritance' in info and 'ObstacleObject' in info['class_inheritance'] and 'tree' in info['obj_id']:
@@ -375,24 +440,34 @@ class BaselineAgent(ArtificialBrain):
                             self._waiting = True
                         # Determine the next area to explore if the human tells the agent not to remove the obstacle
                         if self.received_messages_content and self.received_messages_content[-1] == 'Continue' and not self._remove:
+                            self._competence_remove = min(self._competence_remove + smallReward, 1)
+
                             self._answered = True
                             self._waiting = False
                             # Add area to the to do list
                             self._tosearch.append(self._door['room_name'])
+
+                            self._receivedBigReward = False
                             self._phase = Phase.FIND_NEXT_GOAL
                         # Remove the obstacle if the human tells the agent to do so
                         if self.received_messages_content and self.received_messages_content[-1] == 'Remove' or self._remove:
+                            self._competence_remove = min(self._competence_remove + smallReward, 1)
+
                             if not self._remove:
                                 self._answered = True
                                 self._waiting = False
                                 self._sendMessage('Removing tree blocking ' + str(self._door['room_name']) + '.','RescueBot')
                             if self._remove:
                                 self._sendMessage('Removing tree blocking ' + str(self._door['room_name']) + ' because you asked me to.', 'RescueBot')
+
+                            self._receivedBigReward = False
                             self._phase = Phase.ENTER_ROOM
                             self._remove = False
                             return RemoveObject.__name__, {'object_id': info['obj_id']}
                         # Remain idle untill the human communicates what to do with the identified obstacle
                         else:
+                            self._receivedBigReward = False
+                            self._competence_remove = max(self._competence_remove - penalty, -1)
                             return None, {}
 
                     if 'class_inheritance' in info and 'ObstacleObject' in info['class_inheritance'] and 'stone' in info['obj_id']:
@@ -405,16 +480,24 @@ class BaselineAgent(ArtificialBrain):
                             self._waiting = True
                         # Determine the next area to explore if the human tells the agent not to remove the obstacle          
                         if self.received_messages_content and self.received_messages_content[-1] == 'Continue' and not self._remove:
+                            self._competence_remove = min(self._competence_remove + smallReward, 1)
+
                             self._answered = True
                             self._waiting = False
                             # Add area to the to do list
                             self._tosearch.append(self._door['room_name'])
+
+                            self._receivedBigReward = False
                             self._phase = Phase.FIND_NEXT_GOAL
                         # Remove the obstacle alone if the human decides so
                         if self.received_messages_content and self.received_messages_content[-1] == 'Remove alone' and not self._remove:
+                            self._competence_remove = min(self._competence_remove + smallReward, 1)
+
                             self._answered = True
                             self._waiting = False
                             self._sendMessage('Removing stones blocking ' + str(self._door['room_name']) + '.','RescueBot')
+
+                            self._receivedBigReward = False
                             self._phase = Phase.ENTER_ROOM
                             self._remove = False
                             return RemoveObject.__name__, {'object_id': info['obj_id']}
@@ -424,20 +507,55 @@ class BaselineAgent(ArtificialBrain):
                                 self._answered = True
                             # Tell the human to come over and be idle untill human arrives
                             if not state[{'is_human_agent': True}]:
+                                #gives points for saying and doing the task
+                                if(not self._receivedBigReward):
+                                    self._receivedBigReward = True
+                                    self._competence_remove = min(self._competence_remove + bigReward, 1)
+                                else:
+                                    self._competence_remove = max(self._competence_remove - penalty, -1)
+                                    if (self._competence_remove < -0.5):
+                                        self._answered = True
+                                        self._waiting = False
+                                        # Add area to the to do list
+                                        self._tosearch.append(self._door['room_name'])
+
+                                        self._receivedBigReward = False
+                                        self._phase = Phase.FIND_NEXT_GOAL
+                                        self._sendMessage('Continuing from ' + str(
+                                            self._door[
+                                                'room_name']) + ', because stone is blocking entrance and you have too low removing competence',
+                                                          'RescueBot')
+
                                 self._sendMessage('Please come to ' + str(self._door['room_name']) + ' to remove stones together.','RescueBot')
                                 return None, {}
                             # Tell the human to remove the obstacle when he/she arrives
                             if state[{'is_human_agent': True}]:
                                 self._sendMessage('Lets remove stones blocking ' + str(self._door['room_name']) + '!','RescueBot')
                                 return None, {}
+
                         # Remain idle until the human communicates what to do with the identified obstacle
                         else:
+                            #checks if robot is waiting for human to come and help removing stones.
+                            self._competence_remove = max(self._competence_remove - penalty, -1)
+                            self._receivedBigReward = False
+                            if self._answered:
+                                if(self._competence_remove < -0.5):
+                                    self._answered = True
+                                    self._waiting = False
+                                    self._sendMessage('Removing stones blocking ' + str(self._door['room_name']) + ', because you have too low removing competence',
+                                                      'RescueBot')
+                                    self._phase = Phase.ENTER_ROOM
+                                    self._remove = False
+                                    return RemoveObject.__name__, {'object_id': info['obj_id']}
+
                             return None, {}
                 # If no obstacles are blocking the entrance, enter the area
                 if len(objects) == 0:
                     self._answered = False
                     self._remove = False
                     self._waiting = False
+                    self._receivedBigReward = False
+
                     self._phase = Phase.ENTER_ROOM
 
             if Phase.ENTER_ROOM == self._phase:
@@ -865,7 +983,8 @@ class BaselineAgent(ArtificialBrain):
             for row in reader:
                 if row and row[0] == self._humanName:
                     trustBeliefs[self._humanName] = {'competence_search': float(row[1]), 'competence_rescue':
-                        float(row[2]), 'willingness_search': float(row[3]), 'willingness_rescue': float(row[4])}
+                        float(row[2]), 'willingness_search': float(row[4]), 'willingness_rescue': float(row[5]),
+                                        'competence_remove': float(row[3]), 'willingness_remove': float(row[6])}
                     return trustBeliefs  # If found, return immediately (no need to load defaults)
 
         # Check if agent already collaborated with this human before, if yes: load the corresponding trust values, if no: initialize using default trust values
@@ -880,23 +999,31 @@ class BaselineAgent(ArtificialBrain):
                     name = row[0]
                     competence_search = float(row[1])
                     competence_rescue = float(row[2])
-                    willingness_search = float(row[3])
-                    willingness_rescue = float(row[4])
+                    competence_remove = float(row[3])
+                    willingness_search = float(row[4])
+                    willingness_rescue = float(row[5])
+                    willingness_remove = float(row[6])
                     trustBeliefs[name] = {
                         'competence_search': competence_search,
                         'competence_rescue': competence_rescue,
+                        'competence_remove': competence_remove,
                         'willingness_search': willingness_search,
-                        'willingness_rescue': willingness_rescue}
+                        'willingness_rescue': willingness_rescue,
+                        'willingness_remove': willingness_remove}
                 # Initialize default trust values
                 if row and row[0]!=self._humanName:
                     competence_search = default
                     competence_rescue = default
+                    competence_remove = default
                     willingness_search = default
                     willingness_rescue = default
+                    willingness_remove = default;
                     trustBeliefs[self._humanName] = {'competence_search': competence_search,
                                                       'competence_rescue': competence_rescue,
+                                                      'competence_remove': competence_remove,
                                                       'willingness_search': willingness_search,
-                                                      'willingness_rescue': willingness_rescue}
+                                                      'willingness_rescue': willingness_rescue,
+                                                      'willingness_remove': willingness_remove}
         return trustBeliefs
 
     def _trustBelief(self, members, trustBeliefs, folder, receivedMessages, state):
@@ -928,11 +1055,9 @@ class BaselineAgent(ArtificialBrain):
                     # If only "Found" was received (without prior "Search"), increase by half
                     self._competence_search = min(self._competence_search + 0.025, 1)
                 self.search_found_sequence[room_number] = "found"
-                if self._human_is_searching and (state['World']['nr_ticks'] - self._announced_search <= 180):
-                    self._willingness_search = min (self._willingness_search + 0.05, 1)
-                    self._human_is_searching = False
-
-            # If the human has said that a victim has been collected in a message
+            if self._human_is_searching and (state['World']['nr_ticks'] - self._announced_search <= 180):
+                self._willingness_search = min(self._willingness_search + 0.05, 1)
+                self._human_is_searching = False
             if 'Collect' in message:
                 # Check what victim this is
                 assumed_victim_split = message.split(' ')[1:4]
@@ -949,11 +1074,14 @@ class BaselineAgent(ArtificialBrain):
         # Save current trust belief values so we can later use and retrieve them to add to a csv file with all the logged trust belief values
         with open(folder + '/beliefs/currentTrustBelief.csv', mode='w') as csv_file:
             csv_writer = csv.writer(csv_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writerow(['name', 'competence_search', 'competence_rescue', 'willingness_search', 'willingness_rescue'])
+            csv_writer.writerow(['name', 'competence_search', 'competence_rescue', 'competence_remove',
+                                 'willingness_search', 'willingness_rescue', 'willingness_remove'])
             csv_writer.writerow([self._humanName, trustBeliefs[self._humanName]['competence_search'],
                                  trustBeliefs[self._humanName]['competence_rescue'],
+                                 trustBeliefs[self._humanName]['competence_remove'],
                                  trustBeliefs[self._humanName]['willingness_search'],
-                                 trustBeliefs[self._humanName]['willingness_rescue']])
+                                 trustBeliefs[self._humanName]['willingness_rescue'],
+                                 trustBeliefs[self._humanName]['willingness_remove']])
 
         return trustBeliefs
 
