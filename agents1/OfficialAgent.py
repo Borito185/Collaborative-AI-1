@@ -80,6 +80,7 @@ class BaselineAgent(ArtificialBrain):
         self._competence_remove = 0.5
         self._willingness_remove = 0.5
         self._receivedBigReward = False # removing is annoying. this works fine
+        self._ticksRemoving = 0;
 
         self._started_waiting = 0  # to keep track of time until human helps carry
         self._announced_search = 0  # to keep track of time since said would search
@@ -88,7 +89,7 @@ class BaselineAgent(ArtificialBrain):
 
         # Variables for evaluation
         self._running_evaluation = True
-        self._evaluation_trust = 1
+        self._evaluation_trust = -1
 
 
         self.last = -1 #for debugging. can delete
@@ -368,6 +369,7 @@ class BaselineAgent(ArtificialBrain):
                             self._tosearch.append(self._door['room_name'])
 
                             self._receivedBigReward = False
+                            self._ticksRemoving = 0;
                             self._phase = Phase.FIND_NEXT_GOAL
 
                         # Wait for the human to help removing the obstacle and remove the obstacle together
@@ -376,12 +378,14 @@ class BaselineAgent(ArtificialBrain):
                                 self._answered = True
                             # Tell the human to come over and be idle untill human arrives
                             if not state[{'is_human_agent': True}]:
+                                self._ticksRemoving += 1;
                                 if(not self._receivedBigReward):
                                     self._receivedBigReward = True
                                     self._competence_remove = min(self._competence_remove + bigReward, 1)
                                 else:
                                     self._competence_remove = max(self._competence_remove - penalty, -1)
-                                    if(self._competence_remove < -0.5):
+                                    if(self._competence_remove < -0.5 and self._ticksRemoving > 60):
+                                        self._ticksRemoving = 0;
                                         self._answered = True
                                         self._waiting = False
                                         # Add area to the to do list
@@ -397,12 +401,14 @@ class BaselineAgent(ArtificialBrain):
                                 return None, {}
                             # Tell the human to remove the obstacle when he/she arrives
                             if state[{'is_human_agent': True}]:
+                                self._ticksRemoving += 1
                                 if (not self._receivedBigReward):
                                     self._receivedBigReward = True
                                     self._competence_remove = min(self._competence_remove + bigReward, 1)
                                 else:
                                     self._competence_remove = max(self._competence_remove - penalty, -1)
-                                    if (self._competence_remove < -0.5):
+                                    if (self._competence_remove < -0.5 and self._ticksRemoving > 60):
+                                        self._ticksRemoving = 0
                                         self._answered = True
                                         self._waiting = False
                                         # Add area to the to do list
@@ -421,6 +427,7 @@ class BaselineAgent(ArtificialBrain):
                             self._competence_remove = max(self._competence_remove - penalty, -1)
                             self._receivedBigReward = False
                             if self._answered:
+                                self._ticksRemoving = 0
                                 if (self._competence_remove < -0.5):        #TODO add implementation when this is the last room
                                     self._answered = True
                                     self._waiting = False
