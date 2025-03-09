@@ -1,4 +1,5 @@
 import sys, random, enum, ast, time, csv, os
+from random import Random
 import numpy as np
 from matrx import grid_world
 from brains1.ArtificialBrain import ArtificialBrain
@@ -90,6 +91,8 @@ class BaselineAgent(ArtificialBrain):
         # Variables for evaluation
         self._running_evaluation = True
         self._evaluation_trust = -1
+        self._random_trust = True
+        self._evaluation_trust = 1
 
 
         self.last = -1 #for debugging. can delete
@@ -984,8 +987,11 @@ class BaselineAgent(ArtificialBrain):
         # Set a default starting trust value
         default = 0.5
 
+        if self._random_trust:
+            self._evaluation_trust = random.uniform(-1, 1)
         # When evaluating set to the value used during evaluation
-        if self._running_evaluation: default = self._evaluation_trust
+        if self._running_evaluation:
+            default = self._evaluation_trust
 
         all_trust_path = os.path.join(folder, 'beliefs', 'allTrustBeliefs.csv')
         current_trust_path = os.path.join(folder, 'beliefs', 'currentTrustBelief.csv')

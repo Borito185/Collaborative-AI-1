@@ -35,9 +35,9 @@ if __name__ == "__main__":
     world.run(builder.api_info)
     print("DONE!")
     print("Shutting down custom visualizer")
-    r = requests.get("http://localhost:" + str(visualization_server.port) + "/shutdown_visualizer")
-    vis_thread.join()
     if choice1=="official":
         # Generate one final output log file for the official task type
         output_logger(fld)
+    r = requests.get("http://localhost:" + str(visualization_server.port) + "/shutdown_visualizer")
+    vis_thread.join()
     builder.stop()

@@ -2,3 +2,5 @@
 /myenv
 /venv
 **.pyc
+/beliefs
+/logs
