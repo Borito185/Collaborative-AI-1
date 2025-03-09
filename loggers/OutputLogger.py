@@ -59,8 +59,41 @@ def output_logger(fld):
         csv_writer = csv.writer(csv_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow(['completeness','score','no_ticks','agent_actions','human_actions'])
         csv_writer.writerow([completeness,score,no_ticks,len(unique_agent_actions),len(unique_human_actions)])
-    with open(fld + '/beliefs/allTrustBeliefs.csv', mode='a+') as csv_file:
-        csv_writer = csv.writer(csv_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        # UPDATED TRUST VALUES
-        csv_writer.writerow([name, competence_search, competence_rescue, competence_remove,
-                             willingness_search, willingness_rescue, willingness_remove])
+
+    all_trust_path = os.path.join(fld, 'beliefs', 'allTrustBeliefs.csv')
+    updated_alltrust_contents = []
+    entry_exists = False
+
+    with open(all_trust_path, 'r', newline='') as csvfile:
+        reader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        for row in reader:
+            if row and row[0] == name:
+                updated_alltrust_contents.append([name, competence_search, competence_rescue, competence_remove,
+                                                  willingness_search, willingness_rescue, willingness_remove])
+                entry_exists = True
+            else:
+                updated_alltrust_contents.append(row)
+
+    if not entry_exists:
+        updated_alltrust_contents.append([name, competence_search, competence_rescue, competence_remove,
+                                          willingness_search, willingness_rescue, willingness_remove])
+
+    with open(all_trust_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        writer.writerows(updated_alltrust_contents)
+
+    # Remove the row with the ID from currentTrustBelief.csv
+    current_trust_path = os.path.join(fld, 'beliefs', 'currentTrustBelief.csv')
+    updated_trustfile_contents = []
+
+    with open(current_trust_path, 'r', newline='') as csvfile:
+        reader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        trustfile_header = next(reader)  # Read header
+        updated_trustfile_contents.append(trustfile_header)
+        for row in reader:
+            if row and row[0] != name:
+                updated_trustfile_contents.append(row)
+
+    with open(current_trust_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        writer.writerows(updated_trustfile_contents)

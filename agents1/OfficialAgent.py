@@ -1,4 +1,4 @@
-import sys, random, enum, ast, time, csv
+import sys, random, enum, ast, time, csv, os
 import numpy as np
 from matrx import grid_world
 from brains1.ArtificialBrain import ArtificialBrain
@@ -77,7 +77,6 @@ class BaselineAgent(ArtificialBrain):
         self._competence_rescue = 0.5
         self._willingness_search = 0.5
         self._willingness_rescue = 0.5
-
         self._competence_remove = 0.5
         self._willingness_remove = 0.5
         self._receivedBigReward = False # removing is annoying. this works fine
@@ -973,57 +972,95 @@ class BaselineAgent(ArtificialBrain):
         trustBeliefs = {}
         # Set a default starting trust value
         default = 0.5
-        trustfile_header = []
-        trustfile_contents = []
 
-        # Check if need to reload from scratch
-        with open(folder + '/beliefs/currentTrustBelief.csv') as csvfile:
+        all_trust_path = os.path.join(folder, 'beliefs', 'allTrustBeliefs.csv')
+        current_trust_path = os.path.join(folder, 'beliefs', 'currentTrustBelief.csv')
+
+        # Check if the currentTrustBelief.csv already has the humanName
+        with open(current_trust_path, 'r', newline='') as csvfile:
             reader = csv.reader(csvfile, delimiter=';', quotechar='"')
             next(reader)  # Skip header
             for row in reader:
                 if row and row[0] == self._humanName:
-                    trustBeliefs[self._humanName] = {'competence_search': float(row[1]), 'competence_rescue':
-                        float(row[2]), 'willingness_search': float(row[4]), 'willingness_rescue': float(row[5]),
-                                        'competence_remove': float(row[3]), 'willingness_remove': float(row[6])}
-                    return trustBeliefs  # If found, return immediately (no need to load defaults)
+                    trustBeliefs[self._humanName] = {
+                        'competence_search': float(row[1]),
+                        'competence_rescue': float(row[2]),
+                        'competence_remove': float(row[3]),
+                        'willingness_search': float(row[4]),
+                        'willingness_rescue': float(row[5]),
+                        'willingness_remove': float(row[6])
+                    }
+                    return trustBeliefs  # If found, return immediately
+
+        # Load allTrustBeliefs.csv and check for the humanName
+        trustfile_header = []
+        trustfile_contents = []
+        found = False
 
         # Check if agent already collaborated with this human before, if yes: load the corresponding trust values, if no: initialize using default trust values
         with open(folder+'/beliefs/allTrustBeliefs.csv') as csvfile:
             reader = csv.reader(csvfile, delimiter=';', quotechar="'")
-            for row in reader:
-                if trustfile_header==[]:
-                    trustfile_header=row
-                    continue
-                # Retrieve trust values 
-                if row and row[0]==self._humanName:
-                    name = row[0]
-                    competence_search = float(row[1])
-                    competence_rescue = float(row[2])
-                    competence_remove = float(row[3])
-                    willingness_search = float(row[4])
-                    willingness_rescue = float(row[5])
-                    willingness_remove = float(row[6])
-                    trustBeliefs[name] = {
-                        'competence_search': competence_search,
-                        'competence_rescue': competence_rescue,
-                        'competence_remove': competence_remove,
-                        'willingness_search': willingness_search,
-                        'willingness_rescue': willingness_rescue,
-                        'willingness_remove': willingness_remove}
-                # Initialize default trust values
-                if row and row[0]!=self._humanName:
-                    competence_search = default
-                    competence_rescue = default
-                    competence_remove = default
-                    willingness_search = default
-                    willingness_rescue = default
-                    willingness_remove = default;
-                    trustBeliefs[self._humanName] = {'competence_search': competence_search,
-                                                      'competence_rescue': competence_rescue,
-                                                      'competence_remove': competence_remove,
-                                                      'willingness_search': willingness_search,
-                                                      'willingness_rescue': willingness_rescue,
-                                                      'willingness_remove': willingness_remove}
+            trustfile_contents = list(reader)  # Read all rows
+
+            if trustfile_contents:
+                trustfile_header = trustfile_contents[0]  # Extract header
+
+            for row in trustfile_contents[1:]:
+                if row and row[0] == self._humanName:
+                    print("human found in beliefs csv, loading it")
+                    trustBeliefs[self._humanName] = {
+                        'competence_search': float(row[1]),
+                        'competence_rescue': float(row[2]),
+                        'competence_remove': float(row[3]),
+                        'willingness_search': float(row[4]),
+                        'willingness_rescue': float(row[5]),
+                        'willingness_remove': float(row[6])
+                    }
+
+                    self._competence_search = float(row[1])
+                    self._competence_rescue = float(row[2])
+                    self._competence_remove = float(row[6])
+                    self._willingness_search = float(row[4])
+                    self._willingness_rescue = float(row[5])
+                    self._willingness_remove = float(row[6])
+
+                    found = True
+                    break
+
+        # If humanName was not found, add it with default values
+        if not found:
+            print("human not found in belief csv, creating one")
+            new_entry = [self._humanName, default, default, default, default, default, default]
+            trustfile_contents.append(new_entry)
+            trustBeliefs[self._humanName] = {
+                'competence_search': default,
+                'competence_rescue': default,
+                'competence_remove': default,
+                'willingness_search': default,
+                'willingness_rescue': default,
+                'willingness_remove': default
+            }
+
+            # Set variables of trust
+            self._competence_search = default
+            self._competence_rescue = default
+            self._competence_remove = default
+            self._willingness_search = default
+            self._willingness_rescue = default
+            self._willingness_remove = default
+
+            # Write back the updated allTrustBeliefs.csv
+            with open(all_trust_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                writer.writerow(trustfile_header)
+                writer.writerows(trustfile_contents[1:])
+
+        # Append the found or new trust values to currentTrustBelief.csv
+        with open(current_trust_path, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([self._humanName] + list(trustBeliefs[self._humanName].values()))
+
+        print(trustBeliefs)
         return trustBeliefs
 
     def _trustBelief(self, members, trustBeliefs, folder, receivedMessages, state):
