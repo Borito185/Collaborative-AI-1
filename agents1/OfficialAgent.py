@@ -86,6 +86,10 @@ class BaselineAgent(ArtificialBrain):
         self._human_is_searching = False  # flag to know when human is searching
         self._assumed_collected = []  # to keep track of what victims human collected supposedly
 
+        # Variables for evaluation
+        self._running_evaluation = True
+        self._evaluation_trust = 1
+
 
         self.last = -1 #for debugging. can delete
 
@@ -973,6 +977,9 @@ class BaselineAgent(ArtificialBrain):
         # Set a default starting trust value
         default = 0.5
 
+        # When evaluating set to the value used during evaluation
+        if self._running_evaluation: default = self._evaluation_trust
+
         all_trust_path = os.path.join(folder, 'beliefs', 'allTrustBeliefs.csv')
         current_trust_path = os.path.join(folder, 'beliefs', 'currentTrustBelief.csv')
 
@@ -1071,6 +1078,16 @@ class BaselineAgent(ArtificialBrain):
         if not hasattr(self, "search_found_sequence"):
             self.search_found_sequence = {f"area {i}": None for i in range(1, 15)}  # Initialize once
 
+        # Set everything here to the evaluation trust if we are running an evaluation
+        if self._running_evaluation:
+            self._competence_search = self._evaluation_trust
+            self._competence_rescue = self._evaluation_trust
+            self._competence_remove = self._evaluation_trust
+            self._willingness_search = self._evaluation_trust
+            self._willingness_rescue = self._evaluation_trust
+            self._willingness_remove = self._evaluation_trust
+
+
         # Process received messages
         for message in receivedMessages:
             if "Search" in message:
@@ -1106,7 +1123,11 @@ class BaselineAgent(ArtificialBrain):
 
         trustBeliefs[self._humanName]['competence_search'] = self._competence_search
         trustBeliefs[self._humanName]['competence_rescue'] = self._competence_rescue
+        trustBeliefs[self._humanName]['competence_remove'] = self._competence_remove
         trustBeliefs[self._humanName]['willingness_search'] = self._willingness_search
+        trustBeliefs[self._humanName]['willingness_rescue'] = self._willingness_rescue
+        trustBeliefs[self._humanName]['willingness_remove'] = self._willingness_remove
+
 
         # Save current trust belief values so we can later use and retrieve them to add to a csv file with all the logged trust belief values
         with open(folder + '/beliefs/currentTrustBelief.csv', mode='w') as csv_file:
